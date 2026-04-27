@@ -1595,9 +1595,23 @@ OSStatus sfb::AudioPlayer::render(BOOL &isSilence, const AudioTimeStamp &timesta
         isSilence = YES;
         return noErr;
     }
+// Read audio from the ring buffer
+    // iOS 16 workaround: outputData may have more buffers than ring buffer channels
+    // Create a temporary AudioBufferList matching ring buffer's channel count
+    const auto ringBufferChannels = audioRingBuffer_.format().mChannelsPerFrame;
+    const auto outputChannels = outputData->mNumberBuffers;
 
-    // Read audio from the ring buffer
-    if (const auto framesRead = audioRingBuffer_.read(outputData, frameCount); framesRead > 0) {
+    AudioBufferList *readBufferList = outputData;
+    AudioBufferList tempBufferList;
+    if (outputChannels > ringBufferChannels) {
+        tempBufferList.mNumberBuffers = ringBufferChannels;
+        for (UInt32 i = 0; i < ringBufferChannels; ++i) {
+            tempBufferList.mBuffers[i] = outputData->mBuffers[i];
+        }
+        readBufferList = &tempBufferList;
+    }
+
+    if (const auto framesRead = audioRingBuffer_.read(readBufferList, frameCount); framesRead > 0) {
 #if DEBUG
         if (framesRead != frameCount) {
             os_log_debug(log_, "Insufficient audio in ring buffer: %zu frames available, %u requested", framesRead,

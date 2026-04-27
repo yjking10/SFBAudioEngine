@@ -3,7 +3,7 @@
 ## MIT license
 ##
 
-## Generate an XCFramework from an Xcode project file using xcodebuild.
+## Generate an iOS XCFramework from an Xcode project file using xcodebuild.
 ##
 ## This is a portion of a Makefile. To use it, include it in
 ## your own Makefile and set the following variables:
@@ -25,11 +25,7 @@
 ##
 ##   SCHEME            The scheme building the framework target.
 ##                     If not set the default is "Framework".
-##   MACOS_SCHEME      The scheme building the macOS framework target.
-##                     If not set the default is `$(SCHEME)`.
 ##   IOS_SCHEME        The scheme building the iOS framework target.
-##                     If not set the default is `$(SCHEME)`.
-##   TVOS_SCHEME       The scheme building the tvOS framework target.
 ##                     If not set the default is `$(SCHEME)`.
 ##   BUILD_DIR         The directory where the build products should
 ##                     be written. If not set the default is "build".
@@ -57,12 +53,8 @@
 
 # The default name of the scheme that builds the framework
 SCHEME ?= Framework
-# The default name of the scheme that builds the framework for macOS
-MACOS_SCHEME ?= $(SCHEME)
 # The default name of the scheme that builds the framework for iOS
 IOS_SCHEME ?= $(SCHEME)
-# The default name of the scheme that builds the framework for tvOS
-TVOS_SCHEME ?= $(SCHEME)
 
 # Build products directory
 BUILD_DIR ?= build
@@ -76,20 +68,16 @@ XCFRAMEWORK := $(BUILD_DIR)/$(FRAMEWORK_NAME).xcframework
 XZ_FILE := $(XCFRAMEWORK).tar.xz
 ZIP_FILE := $(XCFRAMEWORK).zip
 
-MACOS_XCARCHIVE := $(XCARCHIVE_DIR)/macOS.xcarchive
-MACOS_CATALYST_XCARCHIVE := $(XCARCHIVE_DIR)/macOS-Catalyst.xcarchive
 IOS_XCARCHIVE := $(XCARCHIVE_DIR)/iOS.xcarchive
 IOS_SIMULATOR_XCARCHIVE := $(XCARCHIVE_DIR)/iOS-Simulator.xcarchive
-TVOS_XCARCHIVE := $(XCARCHIVE_DIR)/tvOS.xcarchive
-TVOS_SIMULATOR_XCARCHIVE := $(XCARCHIVE_DIR)/tvOS-Simulator.xcarchive
 
-XCARCHIVES := $(MACOS_XCARCHIVE) $(MACOS_CATALYST_XCARCHIVE) $(IOS_XCARCHIVE) $(IOS_SIMULATOR_XCARCHIVE) $(TVOS_XCARCHIVE) $(TVOS_SIMULATOR_XCARCHIVE)
+XCARCHIVES := $(IOS_XCARCHIVE) $(IOS_SIMULATOR_XCARCHIVE)
 
 xcframework: $(XCFRAMEWORK)
 .PHONY: xcframework
 
 clean:
-	rm -Rf "$(MACOS_XCARCHIVE)" "$(MACOS_CATALYST_XCARCHIVE)" "$(IOS_XCARCHIVE)" "$(IOS_SIMULATOR_XCARCHIVE)" "$(TVOS_XCARCHIVE)" "$(TVOS_SIMULATOR_XCARCHIVE)" "$(XCFRAMEWORK)" "$(XZ_FILE)" "$(ZIP_FILE)"
+	rm -Rf $(foreach xcarchive,$(XCARCHIVES),"$(xcarchive)") "$(XCFRAMEWORK)" "$(XZ_FILE)" "$(ZIP_FILE)"
 .PHONY: clean
 
 xz: $(XZ_FILE)
@@ -108,23 +96,11 @@ uninstall:
 .PHONY: uninstall
 endif
 
-$(MACOS_XCARCHIVE): $(XCODEPROJ)
-	xcodebuild archive -project "$(XCODEPROJ)" -scheme "$(MACOS_SCHEME)" -destination "generic/platform=macOS" -archivePath "$(basename $@)"
-
-$(MACOS_CATALYST_XCARCHIVE): $(XCODEPROJ)
-	xcodebuild archive -project "$(XCODEPROJ)" -scheme "$(IOS_SCHEME)" -destination "generic/platform=macOS,variant=Mac Catalyst" -archivePath "$(basename $@)"
-
 $(IOS_XCARCHIVE): $(XCODEPROJ)
 	xcodebuild archive -project "$(XCODEPROJ)" -scheme "$(IOS_SCHEME)" -destination "generic/platform=iOS" -archivePath "$(basename $@)"
 
 $(IOS_SIMULATOR_XCARCHIVE): $(XCODEPROJ)
 	xcodebuild archive -project "$(XCODEPROJ)" -scheme "$(IOS_SCHEME)" -destination "generic/platform=iOS Simulator" -archivePath "$(basename $@)"
-
-$(TVOS_XCARCHIVE): $(XCODEPROJ)
-	xcodebuild archive -project "$(XCODEPROJ)" -scheme "$(TVOS_SCHEME)" -destination "generic/platform=tvOS" -archivePath "$(basename $@)"
-
-$(TVOS_SIMULATOR_XCARCHIVE): $(XCODEPROJ)
-	xcodebuild archive -project "$(XCODEPROJ)" -scheme "$(TVOS_SCHEME)" -destination "generic/platform=tvOS Simulator" -archivePath "$(basename $@)"
 
 $(XCFRAMEWORK): $(XCARCHIVES)
 	rm -Rf "$@"
