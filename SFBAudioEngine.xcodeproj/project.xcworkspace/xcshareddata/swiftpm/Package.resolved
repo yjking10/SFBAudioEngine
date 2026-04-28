@@ -1,5 +1,5 @@
 {
-  "originHash" : "d71c1a4f9186e5c490c1069631155ee54d03df086e3a8da26151c9ff05fd89dc",
+  "originHash" : "5228d42cfdddb8e650b36c9e0409c30b49a0411407336a6f8ce6417034710fbc",
   "pins" : [
     {
       "identity" : "avfaudioextensions",
@@ -170,6 +170,15 @@
       "state" : {
         "revision" : "4463d800294a573ac8902b5d100e4a8676df6086",
         "version" : "0.1.2"
+      }
+    },
+    {
+      "identity" : "webrtc-audio-processing-xcframework",
+      "kind" : "remoteSourceControl",
+      "location" : "git@github.com:yjking10/webrtc-audio-processing-xcframework.git",
+      "state" : {
+        "revision" : "aa48455b9017989b5dd0a595fb6e145bb6b984d6",
+        "version" : "1.0.1"
       }
     }
   ],

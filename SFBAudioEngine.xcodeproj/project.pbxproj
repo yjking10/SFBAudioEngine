@@ -232,6 +232,7 @@
 		32F6E60A2D2B04030029B972 /* SFBWAVEFile.h in Headers */ = {isa = PBXBuildFile; fileRef = 3237E17C2CF785DD0084AA51 /* SFBWAVEFile.h */; };
 		32FBE0472F2423EF001852DE /* host_time.hpp in Headers */ = {isa = PBXBuildFile; fileRef = 32FBE0452F2423EF001852DE /* host_time.hpp */; };
 		32FBE0482F2423EF001852DE /* SFBAudioPlayer+Internal.h in Headers */ = {isa = PBXBuildFile; fileRef = 32FBE0462F2423EF001852DE /* SFBAudioPlayer+Internal.h */; };
+		39D2BB342FA0836B00907B9F /* webrtc_audio_processing in Frameworks */ = {isa = PBXBuildFile; productRef = 39D2BB332FA0836B00907B9F /* webrtc_audio_processing */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -451,6 +452,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				328E81672CF7891A00BFCEB2 /* tta-cpp in Frameworks */,
+				39D2BB342FA0836B00907B9F /* webrtc_audio_processing in Frameworks */,
 				321C18BA2CF7889A00670824 /* mpc in Frameworks */,
 				321091E42F3179A60024A44F /* CXXAudioRingBuffer in Frameworks */,
 				321C18B42CF7887600670824 /* speex in Frameworks */,
@@ -999,6 +1001,7 @@
 				3241D7D22EDCA88F0078AB9F /* CXXUnfairLock */,
 				321091E02F31797D0024A44F /* CXXDispatchSemaphore */,
 				321091E32F3179A60024A44F /* CXXAudioRingBuffer */,
+				39D2BB332FA0836B00907B9F /* webrtc_audio_processing */,
 			);
 			productName = SFBAudioEngine;
 			productReference = 3237E0CF2CF7855B0084AA51 /* SFBAudioEngine.framework */;
@@ -1047,6 +1050,7 @@
 				3241D7D12EDCA88F0078AB9F /* XCRemoteSwiftPackageReference "CXXUnfairLock" */,
 				321091DF2F31797D0024A44F /* XCRemoteSwiftPackageReference "CXXDispatchSemaphore" */,
 				321091E22F3179A60024A44F /* XCRemoteSwiftPackageReference "CXXAudioRingBuffer" */,
+				39D2BB322FA0836B00907B9F /* XCRemoteSwiftPackageReference "webrtc-audio-processing-xcframework" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 3237E0D02CF7855B0084AA51 /* Products */;
@@ -1584,6 +1588,14 @@
 				minimumVersion = 0.1.2;
 			};
 		};
+		39D2BB322FA0836B00907B9F /* XCRemoteSwiftPackageReference "webrtc-audio-processing-xcframework" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "git@github.com:yjking10/webrtc-audio-processing-xcframework.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1681,6 +1693,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 328E81652CF7891A00BFCEB2 /* XCRemoteSwiftPackageReference "tta-cpp-binary-xcframework" */;
 			productName = "tta-cpp";
+		};
+		39D2BB332FA0836B00907B9F /* webrtc_audio_processing */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 39D2BB322FA0836B00907B9F /* XCRemoteSwiftPackageReference "webrtc-audio-processing-xcframework" */;
+			productName = webrtc_audio_processing;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
