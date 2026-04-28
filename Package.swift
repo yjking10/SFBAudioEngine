@@ -57,6 +57,7 @@ let package = Package(
         // sndfile-binary-xcframework requires ogg-binary-xcframework, flac-binary-xcframework, opus-binary-xcframework, and vorbis-binary-xcframework
         .package(url: "https://github.com/sbooth/sndfile-binary-xcframework", .upToNextMinor(from: "0.1.2")),
         .package(url: "https://github.com/sbooth/tta-cpp-binary-xcframework", .upToNextMinor(from: "0.1.2")),
+        .package(url: "https://github.com/yjking10/webrtc-audio-processing-xcframework", branch: "main"),
     ],
     targets: [
         .target(
@@ -84,6 +85,7 @@ let package = Package(
                 .product(name: "mpg123", package: "mpg123-binary-xcframework"),
                 .product(name: "sndfile", package: "sndfile-binary-xcframework"),
                 .product(name: "tta-cpp", package: "tta-cpp-binary-xcframework"),
+                .product(name: "webrtc_audio_processing", package: "webrtc-audio-processing-xcframework"),
             ],
             cSettings: [
                 .headerSearchPath("include/SFBAudioEngine"),

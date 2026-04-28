@@ -250,6 +250,16 @@ NSErrorDomain const SFBAudioPlayerErrorDomain = @"org.sbooth.AudioEngine.AudioPl
     return _player->supportsSeeking();
 }
 
+// MARK: - Audio Processing
+
+- (BOOL)isNoiseSuppressionEnabled {
+    return _player->noiseSuppressionEnabled();
+}
+
+- (void)setNoiseSuppressionEnabled:(BOOL)noiseSuppressionEnabled {
+    _player->setNoiseSuppressionEnabled(noiseSuppressionEnabled);
+}
+
 #if !TARGET_OS_IPHONE
 // MARK: - Volume Control
 

@@ -170,6 +170,15 @@
         "revision" : "c8c2a9f930349a7209e14f6e5667fc5cc38b6c4b",
         "version" : "0.2.0"
       }
+    },
+    {
+      "identity" : "webrtc-audio-processing-xcframework",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/yjking10/webrtc-audio-processing-xcframework",
+      "state" : {
+        "branch" : "main",
+        "revision" : "e52104334e01ffbe0b82e110fcc748224b9eb6e5"
+      }
     }
   ],
   "version" : 2

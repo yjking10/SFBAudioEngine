@@ -15,6 +15,7 @@
 #import "host_time.hpp"
 
 #import <AVFAudioExtensions/AVFAudioExtensions.h>
+#import <webrtc_audio_processing/webrtc-audio-processing-1/modules/audio_processing/include/audio_processing.h>
 
 #import <AudioToolbox/AudioFormat.h>
 
@@ -33,6 +34,8 @@ namespace {
 constexpr std::size_t ringBufferCapacity = 16384;
 /// The minimum number of frames to write to the ring buffer
 constexpr AVAudioFrameCount ringBufferChunkSize = 2048;
+/// The WebRTC APM processing frame size, in milliseconds
+constexpr AVAudioFrameCount audioProcessingChunkSizeMs = 10;
 
 /// The default decoding event ring buffer capacity
 constexpr std::size_t decodingEventRingBufferCapacity = 2048;
@@ -41,6 +44,31 @@ constexpr std::size_t renderingEventRingBufferCapacity = 4096;
 
 /// Objective-C associated object key indicating if a decoder has been canceled
 constexpr char decoderIsCanceledKey = '\0';
+
+/// Returns a frame capacity close to `preferredFrameCapacity` that contains complete WebRTC APM frames.
+AVAudioFrameCount frameCapacityForAudioProcessing(AVAudioFormat *_Nonnull format,
+                                                  AVAudioFrameCount preferredFrameCapacity) noexcept {
+#if DEBUG
+    assert(format != nil);
+#endif /* DEBUG */
+
+    const auto sampleRate = format.sampleRate;
+    if (sampleRate <= 0 || !std::isfinite(sampleRate)) {
+        return preferredFrameCapacity;
+    }
+
+    const auto framesPerChunk = sampleRate * audioProcessingChunkSizeMs / 1000.0;
+    const auto roundedFramesPerChunk = std::llround(framesPerChunk);
+    if (roundedFramesPerChunk <= 0 ||
+        roundedFramesPerChunk > std::numeric_limits<AVAudioFrameCount>::max() ||
+        std::abs(framesPerChunk - static_cast<double>(roundedFramesPerChunk)) > 0.01) {
+        return preferredFrameCapacity;
+    }
+
+    const auto apmFrameCount = static_cast<AVAudioFrameCount>(roundedFramesPerChunk);
+    const auto chunkCount = std::max<AVAudioFrameCount>(1, preferredFrameCapacity / apmFrameCount);
+    return apmFrameCount * chunkCount;
+}
 
 void audioEngineConfigurationChangeNotificationCallback(CFNotificationCenterRef center, void *observer,
                                                         CFNotificationName name, const void *object,
@@ -190,6 +218,145 @@ namespace sfb {
 
 const os_log_t AudioPlayer::log_ = os_log_create("org.sbooth.AudioEngine", "AudioPlayer");
 
+// MARK: - Noise Suppressor
+
+struct AudioPlayer::NoiseSuppressor final {
+    rtc::scoped_refptr<webrtc::AudioProcessing> apm_;
+    int sampleRateHz_{0};
+    size_t channelCount_{0};
+    size_t framesPerChunk_{0};
+    bool configurationFailed_{false};
+    std::vector<const float *> sourceChannels_;
+    std::vector<float *> destinationChannels_;
+
+    bool configure(AVAudioFormat *_Nonnull format) noexcept;
+    void reset() noexcept;
+    bool process(AVAudioPCMBuffer *_Nonnull buffer) noexcept;
+};
+
+bool AudioPlayer::NoiseSuppressor::configure(AVAudioFormat *format) noexcept {
+#if DEBUG
+    assert(format != nil);
+#endif /* DEBUG */
+
+    if (!format.isStandard || format.commonFormat != AVAudioPCMFormatFloat32 || format.isInterleaved) {
+        return false;
+    }
+
+    const auto roundedSampleRate = std::llround(format.sampleRate);
+    if (roundedSampleRate <= 0 || roundedSampleRate > std::numeric_limits<int>::max() ||
+        std::abs(format.sampleRate - static_cast<double>(roundedSampleRate)) > 0.01) {
+        return false;
+    }
+
+    const auto sampleRateHz = static_cast<int>(roundedSampleRate);
+    const auto channelCount = static_cast<size_t>(format.channelCount);
+    if (channelCount == 0) {
+        return false;
+    }
+
+    if (!configurationFailed_ && apm_ != nullptr && sampleRateHz_ == sampleRateHz && channelCount_ == channelCount) {
+        return true;
+    }
+
+    reset();
+
+    apm_ = webrtc::AudioProcessingBuilder().Create();
+    if (apm_ == nullptr) {
+        os_log_error(AudioPlayer::log_, "Unable to create WebRTC AudioProcessing instance");
+        configurationFailed_ = true;
+        return false;
+    }
+
+    webrtc::AudioProcessing::Config config;
+    config.pipeline.maximum_internal_processing_rate = webrtc::AudioProcessing::kMaxNativeSampleRateHz;
+    config.pipeline.multi_channel_capture = true;
+    config.noise_suppression.enabled = true;
+    config.noise_suppression.level = webrtc::AudioProcessing::Config::NoiseSuppression::kHigh;
+    apm_->ApplyConfig(config);
+
+    webrtc::StreamConfig streamConfig(sampleRateHz, channelCount);
+    webrtc::ProcessingConfig processingConfig;
+    processingConfig.input_stream() = streamConfig;
+    processingConfig.output_stream() = streamConfig;
+    processingConfig.reverse_input_stream() = streamConfig;
+    processingConfig.reverse_output_stream() = streamConfig;
+
+    const auto result = apm_->Initialize(processingConfig);
+    if (result != webrtc::AudioProcessing::kNoError) {
+        os_log_error(AudioPlayer::log_,
+                     "WebRTC AudioProcessing initialization failed for %d Hz/%zu channels: %d",
+                     sampleRateHz, channelCount, result);
+        reset();
+        configurationFailed_ = true;
+        return false;
+    }
+
+    sampleRateHz_ = sampleRateHz;
+    channelCount_ = channelCount;
+    framesPerChunk_ = streamConfig.num_frames();
+
+    try {
+        sourceChannels_.resize(channelCount_);
+        destinationChannels_.resize(channelCount_);
+    } catch (const std::exception &e) {
+        os_log_error(AudioPlayer::log_, "Error allocating WebRTC AudioProcessing channel arrays: %{public}s",
+                     e.what());
+        reset();
+        configurationFailed_ = true;
+        return false;
+    }
+
+    configurationFailed_ = false;
+    return true;
+}
+
+void AudioPlayer::NoiseSuppressor::reset() noexcept {
+    apm_ = nullptr;
+    sampleRateHz_ = 0;
+    channelCount_ = 0;
+    framesPerChunk_ = 0;
+    configurationFailed_ = false;
+    sourceChannels_.clear();
+    destinationChannels_.clear();
+}
+
+bool AudioPlayer::NoiseSuppressor::process(AVAudioPCMBuffer *buffer) noexcept {
+#if DEBUG
+    assert(buffer != nil);
+#endif /* DEBUG */
+
+    if (buffer.frameLength == 0 || !configure(buffer.format)) {
+        return false;
+    }
+
+    float *const *channelData = buffer.floatChannelData;
+    if (channelData == nullptr || framesPerChunk_ == 0) {
+        return false;
+    }
+
+    AVAudioFrameCount frameOffset = 0;
+    while (frameOffset + framesPerChunk_ <= buffer.frameLength) {
+        for (size_t channel = 0; channel < channelCount_; ++channel) {
+            sourceChannels_[channel] = channelData[channel] + frameOffset;
+            destinationChannels_[channel] = channelData[channel] + frameOffset;
+        }
+
+        const auto result = apm_->ProcessStream(sourceChannels_.data(),
+                                                webrtc::StreamConfig(sampleRateHz_, channelCount_),
+                                                webrtc::StreamConfig(sampleRateHz_, channelCount_),
+                                                destinationChannels_.data());
+        if (result != webrtc::AudioProcessing::kNoError) {
+            os_log_error(AudioPlayer::log_, "WebRTC AudioProcessing ProcessStream failed: %d", result);
+            return false;
+        }
+
+        frameOffset += static_cast<AVAudioFrameCount>(framesPerChunk_);
+    }
+
+    return true;
+}
+
 // MARK: - Decoder State
 
 /// State for tracking/syncing decoding progress
@@ -227,6 +394,8 @@ struct AudioPlayer::DecoderState final {
     AVAudioConverter *converter_{nil};
     /// Buffer used internally for buffering during conversion
     AVAudioPCMBuffer *decodeBuffer_{nil};
+    /// The frame capacity used for decoding and ring buffer writes
+    AVAudioFrameCount decodeFrameCapacity_{0};
 
     /// The error that caused decoding to abort, if any
     NSError *error_{nil};
@@ -321,7 +490,10 @@ inline bool AudioPlayer::DecoderState::allocate(AVAudioFrameCount frameCapacity)
     // The logic in this class assumes no SRC is performed by converter_
     assert(converter_.inputFormat.sampleRate == converter_.outputFormat.sampleRate);
 
-    decodeBuffer_ = [[AVAudioPCMBuffer alloc] initWithPCMFormat:converter_.inputFormat frameCapacity:frameCapacity];
+    decodeFrameCapacity_ = frameCapacityForAudioProcessing(standardEquivalentFormat, frameCapacity);
+
+    decodeBuffer_ = [[AVAudioPCMBuffer alloc] initWithPCMFormat:converter_.inputFormat
+                                                  frameCapacity:decodeFrameCapacity_];
     if (decodeBuffer_ == nil) {
         return false;
     }
@@ -1009,6 +1181,19 @@ bool sfb::AudioPlayer::performClampingSeekToFrame(DecoderState *decoderState, AV
     return true;
 }
 
+// MARK: - Audio Processing
+
+bool sfb::AudioPlayer::noiseSuppressionEnabled() const noexcept {
+    return noiseSuppressionEnabled_.load(std::memory_order_acquire);
+}
+
+void sfb::AudioPlayer::setNoiseSuppressionEnabled(bool enabled) noexcept {
+    const auto wasEnabled = noiseSuppressionEnabled_.exchange(enabled, std::memory_order_acq_rel);
+    if (wasEnabled != enabled) {
+        noiseSuppressorResetRequired_.store(true, std::memory_order_release);
+    }
+}
+
 #if !TARGET_OS_IPHONE
 
 // MARK: - Volume Control
@@ -1265,6 +1450,9 @@ void sfb::AudioPlayer::processDecoders(std::stop_token stoken) noexcept {
         // Request a drain of the ring buffer during the next render cycle to prevent audible artifacts from seeking or
         // cancellation
         if (ringBufferStale) {
+            if (noiseSuppressor_ != nullptr) {
+                noiseSuppressor_->reset();
+            }
             setFlags(Flags::drainRequired);
         }
 
@@ -1342,13 +1530,15 @@ void sfb::AudioPlayer::processDecoders(std::stop_token stoken) noexcept {
                     [renderFormat isEqual:[sourceNode_ outputFormatForBus:0]]) {
                     // Allocate the buffer that is the intermediary between the decoder state and the ring buffer
                     if (auto format = buffer.format; format.channelCount != renderFormat.channelCount ||
-                                                     format.sampleRate != renderFormat.sampleRate) {
+                                                     format.sampleRate != renderFormat.sampleRate ||
+                                                     buffer.frameCapacity != decoderState->decodeFrameCapacity_) {
                         buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:renderFormat
-                                                               frameCapacity:ringBufferChunkSize];
+                                                               frameCapacity:decoderState->decodeFrameCapacity_];
                         if (buffer == nil) {
                             os_log_error(log_,
                                          "Error creating AVAudioPCMBuffer with format %{public}@ and frame capacity %d",
-                                         stringDescribingAVAudioFormat(renderFormat), ringBufferChunkSize);
+                                         stringDescribingAVAudioFormat(renderFormat),
+                                         decoderState->decodeFrameCapacity_);
                             decoderState->error_ = [NSError errorWithDomain:SFBAudioPlayerErrorDomain
                                                                        code:SFBAudioPlayerErrorCodeInternalError
                                                                    userInfo:nil];
@@ -1387,13 +1577,15 @@ void sfb::AudioPlayer::processDecoders(std::stop_token stoken) noexcept {
 
                     // Allocate the buffer that is the intermediary between the decoder state and the ring buffer
                     if (auto format = buffer.format; format.channelCount != renderFormat.channelCount ||
-                                                     format.sampleRate != renderFormat.sampleRate) {
+                                                     format.sampleRate != renderFormat.sampleRate ||
+                                                     buffer.frameCapacity != decoderState->decodeFrameCapacity_) {
                         buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:renderFormat
-                                                               frameCapacity:ringBufferChunkSize];
+                                                               frameCapacity:decoderState->decodeFrameCapacity_];
                         if (buffer == nil) {
                             os_log_error(log_,
                                          "Error creating AVAudioPCMBuffer with format %{public}@ and frame capacity %d",
-                                         stringDescribingAVAudioFormat(renderFormat), ringBufferChunkSize);
+                                         stringDescribingAVAudioFormat(renderFormat),
+                                         decoderState->decodeFrameCapacity_);
                             decoderState->error_ = [NSError errorWithDomain:SFBAudioPlayerErrorDomain
                                                                        code:SFBAudioPlayerErrorCodeInternalError
                                                                    userInfo:nil];
@@ -1410,7 +1602,7 @@ void sfb::AudioPlayer::processDecoders(std::stop_token stoken) noexcept {
         if (decoderState != nullptr) {
             if (const auto flags = loadFlags(); bits::is_clear(flags, Flags::drainRequired)) {
                 // Decode and write chunks to the ring buffer
-                while (audioRingBuffer_.freeSpace() >= ringBufferChunkSize) {
+                while (audioRingBuffer_.freeSpace() >= decoderState->decodeFrameCapacity_) {
                     // Decoding started
                     if (const auto flags = decoderState->loadFlags();
                         bits::is_clear(flags, DecoderState::Flags::decodingStarted)) {
@@ -1441,6 +1633,25 @@ void sfb::AudioPlayer::processDecoders(std::stop_token stoken) noexcept {
                         decoderState->error_ = error;
                         decoderState->setFlags(DecoderState::Flags::cancelRequested);
                         goto next_outer_iteration;
+                    }
+
+                    if (noiseSuppressorResetRequired_.exchange(false, std::memory_order_acq_rel) &&
+                        noiseSuppressor_ != nullptr) {
+                        noiseSuppressor_->reset();
+                    }
+
+                    if (noiseSuppressionEnabled_.load(std::memory_order_acquire) && buffer.frameLength > 0) {
+                        if (noiseSuppressor_ == nullptr) {
+                            try {
+                                noiseSuppressor_ = std::make_unique<NoiseSuppressor>();
+                            } catch (const std::exception &e) {
+                                os_log_error(log_, "Error creating WebRTC noise suppressor: %{public}s", e.what());
+                            }
+                        }
+
+                        if (noiseSuppressor_ != nullptr) {
+                            noiseSuppressor_->process(buffer);
+                        }
                     }
 
                     // Write the decoded audio to the ring buffer for rendering

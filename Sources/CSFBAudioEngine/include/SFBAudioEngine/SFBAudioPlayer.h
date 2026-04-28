@@ -237,6 +237,12 @@ NS_SWIFT_NAME(AudioPlayer)
 /// Returns `YES` if the current decoder supports seeking
 @property(nonatomic, readonly) BOOL supportsSeeking;
 
+// MARK: - Audio Processing
+
+/// Enables WebRTC Audio Processing Module noise suppression during playback.
+/// Defaults to `YES`.
+@property(nonatomic, getter=isNoiseSuppressionEnabled) BOOL noiseSuppressionEnabled;
+
 #if !TARGET_OS_IPHONE
 // MARK: - Volume Control
 

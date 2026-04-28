@@ -96,6 +96,11 @@ class AudioPlayer final {
     /// Dispatch queue used for asynchronous render event notifications
     dispatch_queue_t eventQueue_{nil};
 
+    struct NoiseSuppressor;
+    std::unique_ptr<NoiseSuppressor> noiseSuppressor_;
+    std::atomic_bool noiseSuppressionEnabled_{true};
+    std::atomic_bool noiseSuppressorResetRequired_{false};
+
     /// Player flags
     std::atomic_uint flags_{0};
     static_assert(std::atomic_uint::is_always_lock_free, "Lock-free std::atomic_uint required");
@@ -174,6 +179,11 @@ class AudioPlayer final {
                                     bool isRelative) noexcept;
 
   public:
+    // MARK: - Audio Processing
+
+    bool noiseSuppressionEnabled() const noexcept;
+    void setNoiseSuppressionEnabled(bool enabled) noexcept;
+
 #if !TARGET_OS_IPHONE
     // MARK: - Volume Control
 
